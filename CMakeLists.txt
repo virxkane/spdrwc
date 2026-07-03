@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.16 FATAL_ERROR)
-project(spdrwc LANGUAGES C CXX)
+project(spdrwc VERSION 0.0.1 LANGUAGES C CXX)
 
 set(CMAKE_MODULE_PATH "${CMAKE_SOURCE_DIR}/cmake/modules/")
 
@@ -13,6 +13,8 @@ find_package(Qt6SerialPort REQUIRED)
 # Qt6 modules can override the C++ standard, here we have set the minimum required
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_EXTENSIONS OFF)
+
+add_definitions(-DVERSION=\"${PROJECT_VERSION}\")
 
 if(ADD_DEBUG_EXTRA_OPTS)
     if (CMAKE_CXX_COMPILER_ID STREQUAL "GNU")

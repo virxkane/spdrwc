@@ -8,6 +8,8 @@ set(CMAKE_AUTOUIC ON)
 
 set(SRC_LIST
         main.cpp
+        spdrw-worker.cpp
+        spdrw-controller.cpp
 )
 
 #qt6_add_resources(SPDRWC_RCS spdrwc.qrc)
