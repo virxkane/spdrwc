@@ -47,6 +47,9 @@ signals:
     void finishedWithCode(int code);
 protected:
     int cmdFind(const QStringList& args);
+    int cmdScanDevice(const QStringList& args);
+private:
+    static QString convertToString(const QStringList& params);
 };
 
 #endif

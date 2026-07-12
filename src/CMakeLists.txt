@@ -10,6 +10,7 @@ set(SRC_LIST
         main.cpp
         spdrw-worker.cpp
         spdrw-controller.cpp
+        spdrw-arduino.cpp
 )
 
 #qt6_add_resources(SPDRWC_RCS spdrwc.qrc)

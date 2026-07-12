@@ -20,7 +20,7 @@
 #define SPDRW_CONTROLLER_H
 
 #include <QtCore/QObject>
-#include <QtCore/QMap>
+#include <QtCore/QVariantMap>
 
 class QThread;
 class SpdRwWorker;
