@@ -20,7 +20,9 @@
 #include "spdrw-arduino.h"
 
 #include <QtCore/QThread>
+#include <QtCore/QFile>
 #include <QtCore/QTextStream>
+#include <QtCore/QDataStream>
 #include <QtSerialPort/QSerialPort>
 #include <QtSerialPort/QSerialPortInfo>
 
@@ -56,7 +58,7 @@ void SpdRwWorker::mainWork(const QVariantMap& params) {
             // TODO:
             break;
         case Read:
-            // TODO:
+            result = cmdRead(args);
             break;
         case Write:
             // TODO:
@@ -99,51 +101,163 @@ int SpdRwWorker::cmdFind(const QStringList& args) {
 
 int SpdRwWorker::cmdScanDevice(const QStringList& args) {
     QTextStream out(stdout);
-    QString port;
+    QTextStream err(stderr);
     SpdRwArduino::ReaderSettings settings = { 115200, 3000 };
-    bool good_params = false;
-    if (!args.isEmpty()) {
-        QString arg0 = args[0];
-        QStringList list = arg0.split(":");
-        if (list.size() == 2) {
-            port = list[0];
-            QString baudRate_str = list[1];
-            bool ok = false;
-            int b = baudRate_str.toInt(&ok);
-            if (ok) {
-                settings.BaudRate = b;
-                good_params = true;
-            }
-        }
-    }
-    if (!good_params) {
-        out << "invalid arguments: " << convertToString(args);
+    ArduinoAddress address;
+    if (!args.isEmpty())
+        address = parseArduinoAddress(args[0]);
+    if (address.portName.isEmpty()) {
+        err << "invalid arguments: " << convertToString(args);
         return 1;
     }
-    SpdRwArduino arduino(port, settings);
+    settings.BaudRate = address.baudRate;
+    SpdRwArduino arduino(address.portName, settings);
     QList<int> addresses;
-    bool testRes = arduino.executeCommand<bool>(SpdRwArduino::Test);
-    if (testRes) {
-        // TODO: Get & test firmware version
-        // TODO: Firmware must be added into program resources
-        uint32_t fw_version = arduino.executeCommand<uint32_t>(SpdRwArduino::Version);
-        out << "Firmware version: " << fw_version << Qt::endl;
-        uint8_t addressMask = arduino.executeCommand<uint8_t>(SpdRwArduino::ScanBus);
-        for (uint8_t i = 0; i < 8; i++) {
-            uint8_t mask = 1 << i;
-            if (addressMask & mask) {
-                addresses.append(80 + i);
-            }
+
+    if (!arduino.executeCommand<bool>(SpdRwArduino::Test)) {
+        err << "Communication test failed!";
+        return -1;
+    }
+
+    auto fw_version = arduino.executeCommand<uint32_t>(SpdRwArduino::Version);
+    out << "Firmware version: " << fw_version << Qt::endl;
+    // TODO: Test firmware version
+    // TODO: Firmware must be added into program resources
+    auto addressMask = arduino.executeCommand<uint8_t>(SpdRwArduino::ScanBus);
+    for (uint8_t i = 0; i < 8; i++) {
+        uint8_t mask = 1 << i;
+        if (addressMask & mask) {
+            addresses.append(80 + i);
         }
     }
     if (!addresses.isEmpty()) {
-        for (const int address : addresses) {
-            out << "Found EEPROM at address " << address << Qt::endl;
+        for (const int addr : addresses) {
+            out << "Found EEPROM at address " << addr << Qt::endl;
         }
     } else {
-        out << "No EEPROM found" << Qt::endl;
+        err << "No EEPROM found" << Qt::endl;
     }
-    return 0;
+    return !addresses.isEmpty() ? 0 : -1;
+}
+
+#define SPD_DATA_LENGTH_COUNT 4
+static const uint16_t s_spd_length[SPD_DATA_LENGTH_COUNT] {
+    0,   // Unknown
+    256, // Minimal
+    512, // DDR4
+    1024 // DDR5
+};
+
+int SpdRwWorker::cmdRead(const QStringList& args) {
+    QTextStream out(stdout);
+    QTextStream err(stderr);
+    if (args.size() < 3) {
+        err << "Not enought arguments!" << Qt::endl;
+        return -1;
+    }
+    SpdRwArduino::ReaderSettings settings = { 115200, 3000 };
+    ArduinoAddress address = parseArduinoAddress(args[0]);
+    bool ok = false;
+    const int i2cAddress = args[1].toInt(&ok);
+    if (!ok && i2cAddress < 1) {
+        err << "Invalid I2C address: " << args[1] << Qt::endl;
+        return -1;
+    }
+    if (address.portName.isEmpty()) {
+        err << "invalid arguments: " << convertToString(args);
+        return -1;
+    }
+    const QString& filename = args[2];
+
+    settings.BaudRate = address.baudRate;
+    SpdRwArduino arduino(address.portName, settings);
+
+    // TODO: Validate EEPROM address
+    // TODO: Validate PMIC address
+
+    if (!arduino.executeCommand<bool>(SpdRwArduino::Test)) {
+        err << "Communication test failed!";
+        return -1;
+    }
+
+    // Get SPD size
+    QByteArray spd_data;
+    QByteArray cmd_args;
+    cmd_args.append(i2cAddress);
+    auto sz_code = arduino.executeCommand<uint8_t>(SpdRwArduino::Size, cmd_args);
+    uint16_t spd_sz = 0;
+    bool have_errors = false;
+    if (sz_code >= 0 && sz_code < SPD_DATA_LENGTH_COUNT)
+        spd_sz = s_spd_length[sz_code];
+    if (spd_sz > 0) {
+        out << "Start to read " << spd_sz << " bytes..." << Qt::endl;
+        // Read EEPROM bytes & combine into array
+        cmd_args.resize(4);
+        constexpr uint8_t block_sz = 32;
+        cmd_args[0] = static_cast<char>(i2cAddress);
+        for (uint16_t offset = 0; offset < spd_sz; offset += block_sz) {
+            uint16_t part_sz = spd_sz - offset;
+            if (part_sz > block_sz)
+                part_sz = block_sz;
+            cmd_args[1] = static_cast<char>(offset >> 8); // MSB
+            cmd_args[2] = static_cast<char>(offset);      // LSB
+            cmd_args[3] = static_cast<char>(part_sz);
+            auto part = arduino.executeCommand<QByteArray>(SpdRwArduino::ReadByte, cmd_args);
+            if (part.size() == part_sz) {
+                spd_data.append(part);
+            } else {
+                err << "SPD Read failed: count = " << part.size();
+                have_errors = true;
+                break;
+            }
+            out << "+" << part.size() << "bytes" << Qt::endl;
+        }
+        out << "Read " << spd_data.size() << " bytes" << Qt::endl;
+    } else {
+        err << "Invalid SPD size code: " << sz_code << Qt::endl;
+    }
+    if (!have_errors) {
+        // Save to file
+        QFile file(filename);
+        if (file.open(QFile::ReadWrite)) {
+            QDataStream stream(&file);
+            qint64 wb = stream.writeRawData(spd_data.constData(), spd_data.size());
+            if (wb != spd_data.size()) {
+                err << "Write to file failed: " << filename << Qt::endl;
+                have_errors = true;
+            }
+            file.close();
+        } else {
+            err << "Failed to open file: " << filename << Qt::endl;
+            have_errors = true;
+        }
+    }
+    return !have_errors ? 0 : -1;
+}
+
+struct SpdRwWorker::ArduinoAddress SpdRwWorker::parseArduinoAddress(const QString& str) {
+    SpdRwWorker::ArduinoAddress address;
+    address.portName = "";
+    address.baudRate = 0;
+    QStringList list = str.split(":");
+    QString port;
+    int baudRate = 0;
+    bool good_params = false;
+    if (list.size() == 2) {
+        port = list[0];
+        const QString& baudRate_str = list[1];
+        bool ok = false;
+        int b = baudRate_str.toInt(&ok);
+        if (ok) {
+            baudRate = b;
+            good_params = true;
+        }
+    }
+    if (good_params) {
+        address.portName = port;
+        address.baudRate = baudRate;
+    }
+    return address;
 }
 
 QString SpdRwWorker::convertToString(const QStringList& params) {

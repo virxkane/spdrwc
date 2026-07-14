@@ -102,11 +102,14 @@ public:
             return executeCommandWORD(query);
         if constexpr (std::is_same_v<T, uint32_t>)
             return executeCommandDWORD(query);
+        if constexpr (std::is_same_v<T, QByteArray>)
+            return executeCommandBytes(query);
         return static_cast<T>(0);
     }
 protected:
     bool executeCommandBool(const QByteArray& cmd);
     uint8_t executeCommandByte(const QByteArray& cmd);
+    QByteArray executeCommandBytes(const QByteArray& cmd);
     uint16_t executeCommandWORD(const QByteArray& cmd);
     uint32_t executeCommandDWORD(const QByteArray& cmd);
     QByteArray executeCommandRaw(const QByteArray& cmd);

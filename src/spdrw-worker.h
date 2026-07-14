@@ -25,6 +25,11 @@
 class SpdRwWorker: public QObject
 {
     Q_OBJECT
+    struct ArduinoAddress
+    {
+        QString portName;
+        int baudRate;
+    };
 public:
     enum CommandType
     {
@@ -48,7 +53,9 @@ signals:
 protected:
     int cmdFind(const QStringList& args);
     int cmdScanDevice(const QStringList& args);
+    int cmdRead(const QStringList& args);
 private:
+    static struct ArduinoAddress parseArduinoAddress(const QString& str);
     static QString convertToString(const QStringList& params);
 };
 

@@ -48,16 +48,22 @@ uint8_t SpdRwArduino::executeCommandByte(const QByteArray& cmd) {
     QByteArray response = executeCommandRaw(cmd);
     qDebug() << "BYTE:" << response.toHex(' ');
     if (!response.isEmpty()) {
-        return response[0];
+        return static_cast<uint8_t>(response[0]);
     }
     return 0;
+}
+
+QByteArray SpdRwArduino::executeCommandBytes(const QByteArray& cmd) {
+    QByteArray response = executeCommandRaw(cmd);
+    qDebug() << "BYTES:" << response.toHex(' ');
+    return response;
 }
 
 uint16_t SpdRwArduino::executeCommandWORD(const QByteArray& cmd) {
     QByteArray response = executeCommandRaw(cmd);
     qDebug() << "WORD:" << response.toHex(' ');
     if (response.size() >= 2) {
-        return response[0] | (response[1] << 8);
+        return static_cast<uint8_t>(response[0]) | static_cast<uint8_t>(response[1]) << 8;
     }
     return 0;
 }
