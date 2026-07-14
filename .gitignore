@@ -13,3 +13,4 @@ CMakeLists.txt.user.*
 .clang_format_exe.conf
 .idea
 cmake-build-*
+/build/
