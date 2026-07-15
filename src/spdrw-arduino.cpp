@@ -129,17 +129,15 @@ QByteArray SpdRwArduino::executeCommandRaw(const QByteArray& cmd) {
                 alertFound = true;
                 size_pos = 3;
             }
-            if (response.size() > size_pos) {
-                uint8_t size = response[size_pos];
-                req_sz = size + 3;
-                if (alertFound)
-                    req_sz += 2;
-                if (req_sz > max_size) {
-                    qDebug() << "Invalid packet size" << req_sz << "limiting to max size = " << max_size;
-                    req_sz = max_size;
-                }
-                haveSize = true;
+            uint8_t size = response[size_pos];
+            req_sz = size + 3;
+            if (req_sz > max_size) {
+                qDebug() << "Invalid packet size" << req_sz << "limiting to max size = " << max_size;
+                req_sz = max_size;
             }
+            if (alertFound)
+                req_sz += 2;
+            haveSize = true;
         }
         remainingR = req_sz - trb;
     }
