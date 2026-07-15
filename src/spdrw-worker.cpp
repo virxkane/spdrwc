@@ -30,6 +30,8 @@
 
 #include <QtCore/QDebug>
 
+#define MAX_SPD_SZ 4096
+
 SpdRwWorker::SpdRwWorker()
         : QObject(nullptr) { }
 
@@ -61,7 +63,7 @@ void SpdRwWorker::mainWork(const QVariantMap& params) {
             result = cmdRead(args);
             break;
         case Write:
-            // TODO:
+            result = cmdWrite(args);
             break;
         case SaveFirmware:
             // TODO:
@@ -74,6 +76,7 @@ void SpdRwWorker::mainWork(const QVariantMap& params) {
 }
 
 int SpdRwWorker::cmdFind(const QStringList& args) {
+    // Arguments: none
     QTextStream out(stdout);
     const auto allPorts = QSerialPortInfo::availablePorts();
     int count = 0;
@@ -100,6 +103,8 @@ int SpdRwWorker::cmdFind(const QStringList& args) {
 }
 
 int SpdRwWorker::cmdScanDevice(const QStringList& args) {
+    // Arguments:
+    //  [0] - <port>:<baudRate>
     QTextStream out(stdout);
     QTextStream err(stderr);
     SpdRwArduino::ReaderSettings settings = { 115200, 3000 };
@@ -149,6 +154,10 @@ static const uint16_t s_spd_length[SPD_DATA_LENGTH_COUNT] {
 };
 
 int SpdRwWorker::cmdRead(const QStringList& args) {
+    // Arguments:
+    //  [0] - <port>:<baudRate>
+    //  [1] - <I2C Address>
+    //  [2] - <target file name>
     QTextStream out(stdout);
     QTextStream err(stderr);
     if (args.size() < 3) {
@@ -184,7 +193,7 @@ int SpdRwWorker::cmdRead(const QStringList& args) {
     QByteArray spd_data;
     QByteArray cmd_args;
     cmd_args.append(i2cAddress);
-    auto sz_code = arduino.executeCommand<uint8_t>(SpdRwArduino::Size, cmd_args);
+    const auto sz_code = arduino.executeCommand<uint8_t>(SpdRwArduino::Size, cmd_args);
     uint16_t spd_sz = 0;
     bool have_errors = false;
     if (sz_code >= 0 && sz_code < SPD_DATA_LENGTH_COUNT)
@@ -215,6 +224,7 @@ int SpdRwWorker::cmdRead(const QStringList& args) {
         out << "Read " << spd_data.size() << " bytes" << Qt::endl;
     } else {
         err << "Invalid SPD size code: " << sz_code << Qt::endl;
+        have_errors = true;
     }
     if (!have_errors) {
         // Save to file
@@ -231,6 +241,107 @@ int SpdRwWorker::cmdRead(const QStringList& args) {
             err << "Failed to open file: " << filename << Qt::endl;
             have_errors = true;
         }
+    }
+    return !have_errors ? 0 : -1;
+}
+
+int SpdRwWorker::cmdWrite(const QStringList& args) {
+    // Arguments:
+    //  [0] - <port>:<baudRate>
+    //  [1] - <I2C Address>
+    //  [2] - <source file name>
+    QTextStream out(stdout);
+    QTextStream err(stderr);
+    if (args.size() < 3) {
+        err << "Not enought arguments!" << Qt::endl;
+        return -1;
+    }
+    SpdRwArduino::ReaderSettings settings = { 115200, 3000 };
+    ArduinoAddress address = parseArduinoAddress(args[0]);
+    bool ok = false;
+    const int i2cAddress = args[1].toInt(&ok);
+    if (!ok && i2cAddress < 1) {
+        err << "Invalid I2C address: " << args[1] << Qt::endl;
+        return -1;
+    }
+    if (address.portName.isEmpty()) {
+        err << "invalid arguments: " << convertToString(args);
+        return -1;
+    }
+    const QString& filename = args[2];
+    QFile file(filename);
+    if (file.size() < 128) {
+        err << "SPD file size is too small: " << file.size() << Qt::endl;
+        return -1;
+    }
+    if (file.size() >= MAX_SPD_SZ) {
+        err << "SPD file size is too big: " << file.size() << Qt::endl;
+        return -1;
+    }
+    QByteArray spd_data;
+    if (file.open(QFile::ReadOnly)) {
+        QDataStream stream(&file);
+        char buff[MAX_SPD_SZ];
+        qint64 rb = stream.readRawData(buff, MAX_SPD_SZ);
+        if (rb > 0 && rb == file.size()) {
+            spd_data.append(buff, rb);
+        }
+    }
+    if (spd_data.isEmpty()) {
+        err << "Failed to read SPD data from file!" << Qt::endl;
+        return -1;
+    }
+
+    // TODO: Validate SPD data
+
+    // TODO: Validate EEPROM address
+    // TODO: Validate PMIC address
+
+    settings.BaudRate = address.baudRate;
+    SpdRwArduino arduino(address.portName, settings);
+
+    if (!arduino.executeCommand<bool>(SpdRwArduino::Test)) {
+        err << "Communication test failed!";
+        return -1;
+    }
+
+    // Get SPD size
+    QByteArray cmd_args;
+    cmd_args.append(static_cast<char>(i2cAddress));
+    const auto sz_code = arduino.executeCommand<uint8_t>(SpdRwArduino::Size, cmd_args);
+    uint16_t spd_sz = 0;
+    bool have_errors = false;
+    if (sz_code >= 0 && sz_code < SPD_DATA_LENGTH_COUNT)
+        spd_sz = s_spd_length[sz_code];
+    if (spd_sz > 0) {
+        if (spd_sz == spd_data.size()) {
+            // Write SPD data to EEPROM
+            out << "Start writing SPD data to EEPROM..." << Qt::endl;
+            cmd_args.resize(4);
+            cmd_args[0] = static_cast<char>(i2cAddress);
+            for (uint16_t offset = 0; offset < static_cast<uint16_t>(spd_data.size()); offset++) {
+                cmd_args[1] = static_cast<char>(offset >> 8); // MSB
+                cmd_args[2] = static_cast<char>(offset);      // LSB
+                cmd_args[3] = static_cast<char>(1);
+                const auto b = arduino.executeCommand<uint8_t>(SpdRwArduino::ReadByte, cmd_args);
+                const auto v = spd_data[offset];
+                if (b != v) {
+                    cmd_args[3] = static_cast<char>(v);
+                    auto write_res = arduino.executeCommand<bool>(SpdRwArduino::WriteByte, cmd_args);
+                    if (!write_res) {
+                        err << "Failed to write SPD data to EEPROM at offset=" << offset << "!" << Qt::endl;
+                        have_errors = true;
+                        break;
+                    }
+                }
+            }
+        } else {
+            err << "SPD EEPROM size != SPD data in file" << sz_code << Qt::endl;
+            have_errors = true;
+        }
+    } else {
+        err << "Invalid SPD size code: " << sz_code << Qt::endl;
+        have_errors = true;
     }
     return !have_errors ? 0 : -1;
 }

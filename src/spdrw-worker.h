@@ -54,6 +54,7 @@ protected:
     int cmdFind(const QStringList& args);
     int cmdScanDevice(const QStringList& args);
     int cmdRead(const QStringList& args);
+    int cmdWrite(const QStringList& args);
 private:
     static struct ArduinoAddress parseArduinoAddress(const QString& str);
     static QString convertToString(const QStringList& params);
