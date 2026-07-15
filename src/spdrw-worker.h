@@ -36,6 +36,7 @@ public:
         None,        // NOOP
         Find,        // Find Device
         Scan,        // Scan Device
+        CheckWP,     // Check Write Protection
         EnableWP,    // Enable Write Protection
         DisableWP,   // Disable Write Protection
         EnablePWP,   // Enable Permanent Write Protection
@@ -55,6 +56,7 @@ protected:
     int cmdScanDevice(const QStringList& args);
     int cmdRead(const QStringList& args);
     int cmdWrite(const QStringList& args);
+    int cmdCheckWP(const QStringList& args);
 private:
     static struct ArduinoAddress parseArduinoAddress(const QString& str);
     static QString convertToString(const QStringList& params);

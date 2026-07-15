@@ -57,6 +57,8 @@ int main(int argc, char* argv[]) {
         cmd = SpdRwWorker::CommandType::Find;
     } else if ("scan" == scmd) {
         cmd = SpdRwWorker::CommandType::Scan;
+    } else if ("checkwp" == scmd) {
+        cmd = SpdRwWorker::CommandType::CheckWP;
     } else if ("enablewp" == scmd) {
         cmd = SpdRwWorker::CommandType::EnableWP;
     } else if ("disablewp" == scmd) {

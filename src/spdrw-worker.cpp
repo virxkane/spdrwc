@@ -50,6 +50,9 @@ void SpdRwWorker::mainWork(const QVariantMap& params) {
         case Scan:
             result = cmdScanDevice(args);
             break;
+        case CheckWP:
+            result = cmdCheckWP(args);
+            break;
         case EnableWP:
             // TODO:
             break;
@@ -168,7 +171,7 @@ int SpdRwWorker::cmdRead(const QStringList& args) {
     ArduinoAddress address = parseArduinoAddress(args[0]);
     bool ok = false;
     const int i2cAddress = args[1].toInt(&ok);
-    if (!ok && i2cAddress < 1) {
+    if (!ok || i2cAddress < 1) {
         err << "Invalid I2C address: " << args[1] << Qt::endl;
         return -1;
     }
@@ -260,7 +263,7 @@ int SpdRwWorker::cmdWrite(const QStringList& args) {
     ArduinoAddress address = parseArduinoAddress(args[0]);
     bool ok = false;
     const int i2cAddress = args[1].toInt(&ok);
-    if (!ok && i2cAddress < 1) {
+    if (!ok || i2cAddress < 1) {
         err << "Invalid I2C address: " << args[1] << Qt::endl;
         return -1;
     }
@@ -345,6 +348,36 @@ int SpdRwWorker::cmdWrite(const QStringList& args) {
     }
     return !have_errors ? 0 : -1;
 }
+
+int SpdRwWorker::cmdCheckWP(const QStringList& args) {
+    // Arguments:
+    //  [0] - <port>:<baudRate>
+    //  [1] - <I2C Address>
+    QTextStream out(stdout);
+    QTextStream err(stderr);
+    if (args.size() < 2) {
+        err << "Not enought arguments!" << Qt::endl;
+        return -1;
+    }
+    SpdRwArduino::ReaderSettings settings = { 115200, 3000 };
+    ArduinoAddress address = parseArduinoAddress(args[0]);
+    bool ok = false;
+    const int i2cAddress = args[1].toInt(&ok);
+    if (!ok || i2cAddress < 1) {
+        err << "Invalid I2C address: " << args[1] << Qt::endl;
+        return -1;
+    }
+    if (address.portName.isEmpty()) {
+        err << "invalid arguments: " << convertToString(args);
+        return -1;
+    }
+
+    // TODO: Get WP blocks counts (depends on module type)
+    // TODO: Check each block for WP
+
+    return -1;
+}
+
 
 struct SpdRwWorker::ArduinoAddress SpdRwWorker::parseArduinoAddress(const QString& str) {
     SpdRwWorker::ArduinoAddress address;
