@@ -44,6 +44,13 @@ public:
         Write,       // Write SPD EEPROM
         SaveFirmware // Save Firmware
     };
+    enum ModuleType
+    {
+        Unknown,
+        DDR3,
+        DDR4,
+        DDR5
+    };
 public:
     explicit SpdRwWorker();
     ~SpdRwWorker() override = default;
