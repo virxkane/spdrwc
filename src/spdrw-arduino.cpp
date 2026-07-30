@@ -37,45 +37,43 @@ SpdRwArduino::~SpdRwArduino() {
 
 bool SpdRwArduino::executeCommandBool(const QByteArray& cmd) {
     QByteArray response = executeCommandRaw(cmd);
+    if (response.isEmpty())
+        throw SpdRwArduinoReadException(0, 1);
     qDebug() << "BOOL:" << response.toHex(' ');
-    if (!response.isEmpty()) {
-        return response[0] != 0;
-    }
-    return false;
+    return response[0] != 0;
 }
 
 uint8_t SpdRwArduino::executeCommandByte(const QByteArray& cmd) {
     QByteArray response = executeCommandRaw(cmd);
+    if (response.isEmpty())
+        throw SpdRwArduinoReadException(0, 1);
     qDebug() << "BYTE:" << response.toHex(' ');
-    if (!response.isEmpty()) {
-        return static_cast<uint8_t>(response[0]);
-    }
-    return 0;
+    return static_cast<uint8_t>(response[0]);
 }
 
 QByteArray SpdRwArduino::executeCommandBytes(const QByteArray& cmd) {
     QByteArray response = executeCommandRaw(cmd);
+    if (response.isEmpty())
+        throw SpdRwArduinoReadException();
     qDebug() << "BYTES:" << response.toHex(' ');
     return response;
 }
 
 uint16_t SpdRwArduino::executeCommandWORD(const QByteArray& cmd) {
     QByteArray response = executeCommandRaw(cmd);
+    if (response.size() < 2)
+        throw SpdRwArduinoReadException(static_cast<int>(response.size()), 2);
     qDebug() << "WORD:" << response.toHex(' ');
-    if (response.size() >= 2) {
-        return static_cast<uint8_t>(response[0]) | static_cast<uint8_t>(response[1]) << 8;
-    }
-    return 0;
+    return static_cast<uint8_t>(response[0]) | static_cast<uint8_t>(response[1]) << 8;
 }
 
 uint32_t SpdRwArduino::executeCommandDWORD(const QByteArray& cmd) {
     QByteArray response = executeCommandRaw(cmd);
+    if (response.size() < 4)
+        throw SpdRwArduinoReadException(static_cast<int>(response.size()), 4);
     qDebug() << "DWORD:" << response.toHex(' ');
-    if (response.size() >= 4) {
-        return static_cast<uint8_t>(response[0]) | static_cast<uint8_t>(response[1]) << 8 |
-               static_cast<uint8_t>(response[2]) << 16 | static_cast<uint8_t>(response[3]) << 24;
-    }
-    return 0;
+    return static_cast<uint8_t>(response[0]) | static_cast<uint8_t>(response[1]) << 8 |
+           static_cast<uint8_t>(response[2]) << 16 | static_cast<uint8_t>(response[3]) << 24;
 }
 
 QByteArray SpdRwArduino::executeCommandRaw(const QByteArray& cmd) {

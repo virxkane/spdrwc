@@ -25,6 +25,8 @@
 
 #include <cstdint>
 #include <type_traits>
+#include <stdexcept>
+#include <sstream>
 
 class QSerialPort;
 
@@ -86,6 +88,34 @@ public:
         int BaudRate; // Port baud rate, number
         int timeout;  // I/O operations timeout, ms
     };
+    class SpdRwArduinoException: public std::exception
+    {
+        std::string msg;
+    public:
+        SpdRwArduinoException() = default;
+        explicit SpdRwArduinoException(const std::string& str) {
+            msg = str;
+        }
+        ~SpdRwArduinoException() override = default;
+        [[nodiscard]] const char* what() const noexcept override {
+            return msg.c_str();
+        }
+    protected:
+        void setError(const std::string& str) {
+            msg = str;
+        }
+    };
+    class SpdRwArduinoReadException: public SpdRwArduinoException
+    {
+    public:
+        SpdRwArduinoReadException()
+                : SpdRwArduinoException("read failed") { }
+        explicit SpdRwArduinoReadException(const int rb, const int total) {
+            std::ostringstream oss;
+            oss << "read failed: " << rb << " from " << total;
+            this->setError(oss.str());
+        }
+    };
 public:
     SpdRwArduino(const QString& portName, struct ReaderSettings& settings);
     virtual ~SpdRwArduino();
@@ -94,6 +124,7 @@ public:
         QByteArray query;
         query.append((char)cmd);
         query.append(args);
+        // NOTE: Any executeCommandXXX function may raise an exception
         if constexpr (std::is_same_v<T, bool>)
             return executeCommandBool(query);
         if constexpr (std::is_same_v<T, uint8_t>)
@@ -104,7 +135,7 @@ public:
             return executeCommandDWORD(query);
         if constexpr (std::is_same_v<T, QByteArray>)
             return executeCommandBytes(query);
-        return static_cast<T>(0);
+        throw SpdRwArduinoException("Unsupported/unimplemented return type");
     }
 protected:
     bool executeCommandBool(const QByteArray& cmd);
