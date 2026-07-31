@@ -38,7 +38,7 @@ SpdRwWorker::SpdRwWorker()
 void SpdRwWorker::mainWork(const QVariantMap& params) {
     qDebug() << "params: " << params;
     int result = 1;
-    CommandType type = (CommandType)params.value("command").toInt();
+    CommandType type = static_cast<CommandType>(params.value("command").toInt());
     auto args = params.value("args").toStringList();
     switch (type) {
         case None:
@@ -81,6 +81,8 @@ void SpdRwWorker::mainWork(const QVariantMap& params) {
 int SpdRwWorker::cmdFind(const QStringList& args) {
     // Arguments: none
     QTextStream out(stdout);
+    QTextStream err(stderr);
+
     const auto allPorts = QSerialPortInfo::availablePorts();
     int count = 0;
     for (const auto& info : allPorts) {
@@ -91,13 +93,21 @@ int SpdRwWorker::cmdFind(const QStringList& args) {
             continue;
         }
 #endif
+
         // TODO: probe with few baud rates...
         SpdRwArduino::ReaderSettings settings = { 115200, 3000 };
         SpdRwArduino arduino(port, settings);
+        bool have_errors = false;
+
         // Test communication with target device via this port...
-        qDebug() << "Probing port" << port << "...";
-        bool ok = arduino.executeCommand<bool>(SpdRwArduino::Test);
-        if (ok) {
+        try {
+            qDebug() << "Probing port" << port << "...";
+            have_errors = !arduino.executeCommand<bool>(SpdRwArduino::Command::Test);
+        } catch (const SpdRwArduino::SpdRwArduinoException& e) {
+            err << e.what() << Qt::endl;
+            have_errors = true;
+        }
+        if (!have_errors) {
             out << port << ":" << settings.BaudRate << Qt::endl;
             count++;
         }
@@ -110,6 +120,7 @@ int SpdRwWorker::cmdScanDevice(const QStringList& args) {
     //  [0] - <port>:<baudRate>
     QTextStream out(stdout);
     QTextStream err(stderr);
+
     SpdRwArduino::ReaderSettings settings = { 115200, 3000 };
     ArduinoAddress address;
     if (!args.isEmpty())
@@ -118,27 +129,40 @@ int SpdRwWorker::cmdScanDevice(const QStringList& args) {
         err << "invalid arguments: " << convertToString(args);
         return 1;
     }
+
     settings.BaudRate = address.baudRate;
     SpdRwArduino arduino(address.portName, settings);
+    bool have_errors = false;
     QList<int> addresses;
 
-    if (!arduino.executeCommand<bool>(SpdRwArduino::Test)) {
-        err << "Communication test failed!";
+    try {
+        have_errors = !arduino.executeCommand<bool>(SpdRwArduino::Command::Test);
+    } catch (const SpdRwArduino::SpdRwArduinoException& e) {
+        err << e.what() << Qt::endl;
+        have_errors = true;
+    }
+    if (have_errors) {
+        err << "Communication test failed!" << Qt::endl;
         return -1;
     }
 
-    auto fw_version = arduino.executeCommand<uint32_t>(SpdRwArduino::Version);
-    out << "Firmware version: " << fw_version << Qt::endl;
-    // TODO: Test firmware version
-    // TODO: Firmware must be added into program resources
-    auto addressMask = arduino.executeCommand<uint8_t>(SpdRwArduino::ScanBus);
-    for (uint8_t i = 0; i < 8; i++) {
-        uint8_t mask = 1 << i;
-        if (addressMask & mask) {
-            addresses.append(80 + i);
+    try {
+        auto fw_version = arduino.executeCommand<uint32_t>(SpdRwArduino::Command::Version);
+        out << "Firmware version: " << fw_version << Qt::endl;
+        // TODO: Test firmware version
+        // TODO: Firmware must be added into program resources
+        auto addressMask = arduino.executeCommand<uint8_t>(SpdRwArduino::Command::ScanBus);
+        for (uint8_t i = 0; i < 8; i++) {
+            uint8_t mask = 1 << i;
+            if (addressMask & mask) {
+                addresses.append(80 + i);
+            }
         }
+    } catch (const SpdRwArduino::SpdRwArduinoException& e) {
+        err << "SpdRwArduinoException: " << e.what() << Qt::endl;
+        have_errors = true;
     }
-    if (!addresses.isEmpty()) {
+    if (!have_errors && !addresses.isEmpty()) {
         for (const int addr : addresses) {
             out << "Found EEPROM at address " << addr << Qt::endl;
         }
@@ -183,25 +207,43 @@ int SpdRwWorker::cmdRead(const QStringList& args) {
 
     settings.BaudRate = address.baudRate;
     SpdRwArduino arduino(address.portName, settings);
+    bool have_errors = false;
 
     // TODO: Validate EEPROM address
     // TODO: Validate PMIC address
 
-    if (!arduino.executeCommand<bool>(SpdRwArduino::Test)) {
+    // Test device communication
+    // This is required step, without this EEPROM Read function result (and may be other) will be invalid!
+    try {
+        have_errors = !arduino.executeCommand<bool>(SpdRwArduino::Command::Test);
+    } catch (const SpdRwArduino::SpdRwArduinoException& e) {
+        err << "SpdRwArduinoException: " << e.what() << Qt::endl;
+        have_errors = true;
+    }
+    if (have_errors) {
         err << "Communication test failed!" << Qt::endl;
         return -1;
     }
 
+    // TODO: Check Firmware version
+
     // Get SPD size
+    uint8_t sz_code = 0;
+    uint16_t spd_sz = 0;
     QByteArray spd_data;
     QByteArray cmd_args;
-    cmd_args.append(i2cAddress);
-    const auto sz_code = arduino.executeCommand<uint8_t>(SpdRwArduino::Size, cmd_args);
-    uint16_t spd_sz = 0;
-    bool have_errors = false;
-    if (sz_code >= 0 && sz_code < SPD_DATA_LENGTH_COUNT)
-        spd_sz = s_spd_length[sz_code];
-    if (spd_sz > 0) {
+    cmd_args.append(static_cast<char>(i2cAddress));
+    try {
+        sz_code = arduino.executeCommand<uint8_t>(SpdRwArduino::Command::Size, cmd_args);
+        if (sz_code < SPD_DATA_LENGTH_COUNT)
+            spd_sz = s_spd_length[sz_code];
+        else
+            have_errors = true;
+    } catch (const SpdRwArduino::SpdRwArduinoException& e) {
+        err << "Get EEPROM size failed: " << e.what() << Qt::endl;
+        have_errors = true;
+    }
+    if (!have_errors && spd_sz > 0) {
         out << "Start to read " << spd_sz << " bytes..." << Qt::endl;
         // Read EEPROM bytes & combine into array
         cmd_args.resize(4);
@@ -214,15 +256,22 @@ int SpdRwWorker::cmdRead(const QStringList& args) {
             cmd_args[1] = static_cast<char>(offset >> 8); // MSB
             cmd_args[2] = static_cast<char>(offset);      // LSB
             cmd_args[3] = static_cast<char>(part_sz);
-            auto part = arduino.executeCommand<QByteArray>(SpdRwArduino::ReadByte, cmd_args);
-            if (part.size() == part_sz) {
-                spd_data.append(part);
-            } else {
-                err << "SPD Read failed: count = " << part.size();
+            try {
+                auto part = arduino.executeCommand<QByteArray>(SpdRwArduino::Command::ReadByte, cmd_args);
+                if (part.size() == part_sz) {
+                    spd_data.append(part);
+                } else {
+                    err << "SPD Read failed: count = " << part.size();
+                    have_errors = true;
+                    break;
+                }
+                out << "+" << part.size() << "bytes" << Qt::endl;
+            } catch (const SpdRwArduino::SpdRwArduinoException& e) {
+                err << "SPD Read failed: " << e.what() << Qt::endl;
                 have_errors = true;
-                break;
             }
-            out << "+" << part.size() << "bytes" << Qt::endl;
+            if (have_errors)
+                break;
         }
         out << "Read " << spd_data.size() << " bytes" << Qt::endl;
     } else {
@@ -302,21 +351,39 @@ int SpdRwWorker::cmdWrite(const QStringList& args) {
 
     settings.BaudRate = address.baudRate;
     SpdRwArduino arduino(address.portName, settings);
+    bool have_errors = false;
 
-    if (!arduino.executeCommand<bool>(SpdRwArduino::Test)) {
-        err << "Communication test failed!";
+    // Test device communication
+    // This is required step, without this EEPROM Read function result (and may be other) will be invalid!
+    try {
+        have_errors = !arduino.executeCommand<bool>(SpdRwArduino::Command::Test);
+    } catch (const SpdRwArduino::SpdRwArduinoException& e) {
+        err << "SpdRwArduinoException: " << e.what() << Qt::endl;
+        have_errors = true;
+    }
+    if (have_errors) {
+        err << "Communication test failed!" << Qt::endl;
         return -1;
     }
 
+    // TODO: Check Firmware version
+
     // Get SPD size
     QByteArray cmd_args;
-    cmd_args.append(static_cast<char>(i2cAddress));
-    const auto sz_code = arduino.executeCommand<uint8_t>(SpdRwArduino::Size, cmd_args);
+    uint8_t sz_code = 0;
     uint16_t spd_sz = 0;
-    bool have_errors = false;
-    if (sz_code >= 0 && sz_code < SPD_DATA_LENGTH_COUNT)
-        spd_sz = s_spd_length[sz_code];
-    if (spd_sz > 0) {
+    cmd_args.append(static_cast<char>(i2cAddress));
+    try {
+        sz_code = arduino.executeCommand<uint8_t>(SpdRwArduino::Command::Size, cmd_args);
+        if (sz_code < SPD_DATA_LENGTH_COUNT)
+            spd_sz = s_spd_length[sz_code];
+        else
+            have_errors = true;
+    } catch (const SpdRwArduino::SpdRwArduinoException& e) {
+        err << "Get EEPROM size failed: " << e.what() << Qt::endl;
+        have_errors = true;
+    }
+    if (!have_errors && spd_sz > 0) {
         if (spd_sz == spd_data.size()) {
             // Write SPD data to EEPROM
             out << "Start writing SPD data to EEPROM..." << Qt::endl;
@@ -326,16 +393,22 @@ int SpdRwWorker::cmdWrite(const QStringList& args) {
                 cmd_args[1] = static_cast<char>(offset >> 8); // MSB
                 cmd_args[2] = static_cast<char>(offset);      // LSB
                 cmd_args[3] = static_cast<char>(1);
-                const auto b = arduino.executeCommand<uint8_t>(SpdRwArduino::ReadByte, cmd_args);
-                const auto v = spd_data[offset];
-                if (b != v) {
-                    cmd_args[3] = static_cast<char>(v);
-                    auto write_res = arduino.executeCommand<bool>(SpdRwArduino::WriteByte, cmd_args);
-                    if (!write_res) {
-                        err << "Failed to write SPD data to EEPROM at offset=" << offset << "!" << Qt::endl;
-                        have_errors = true;
-                        break;
+                try {
+                    const auto b = arduino.executeCommand<uint8_t>(SpdRwArduino::Command::ReadByte, cmd_args);
+                    const auto v = spd_data[offset];
+                    if (b != v) {
+                        cmd_args[3] = static_cast<char>(v);
+                        auto write_res = arduino.executeCommand<bool>(SpdRwArduino::Command::WriteByte, cmd_args);
+                        if (!write_res) {
+                            err << "Failed to write SPD data to EEPROM at offset=" << offset << "!" << Qt::endl;
+                            have_errors = true;
+                            break;
+                        }
                     }
+                } catch (const SpdRwArduino::SpdRwArduinoException& e) {
+                    err << "SpdRwArduinoException: " << e.what() << Qt::endl;
+                    have_errors = true;
+                    break;
                 }
             }
             if (!have_errors) {
@@ -395,6 +468,8 @@ int SpdRwWorker::cmdCheckWP(const QStringList& args) {
         err << "Communication test failed!" << Qt::endl;
         return -1;
     }
+
+    // TODO: Check Firmware version
 
     QByteArray cmd_args;
     cmd_args.append(static_cast<char>(i2cAddress));
