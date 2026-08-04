@@ -54,13 +54,13 @@ void SpdRwWorker::mainWork(const QVariantMap& params) {
             result = cmdCheckWP(args);
             break;
         case EnableWP:
-            // TODO:
+            result = cmdEnableWP(args);
             break;
         case DisableWP:
-            // TODO:
+            result = cmdDisableWP(args);
             break;
         case EnablePWP:
-            // TODO:
+            result = cmdEnablePWP(args);
             break;
         case Read:
             result = cmdRead(args);
@@ -69,7 +69,7 @@ void SpdRwWorker::mainWork(const QVariantMap& params) {
             result = cmdWrite(args);
             break;
         case SaveFirmware:
-            // TODO:
+            result = cmdSaveFirmware(args);
             break;
         default:
             qDebug() << "Unknown command type: " << type;
@@ -559,6 +559,26 @@ int SpdRwWorker::cmdCheckWP(const QStringList& args) {
         }
         return 0;
     }
+    return -1;
+}
+
+int SpdRwWorker::cmdEnableWP(const QStringList& args) {
+    // TODO: implement this
+    return -1;
+}
+
+int SpdRwWorker::cmdDisableWP(const QStringList& args) {
+    // TODO: implement this
+    return -1;
+}
+
+int SpdRwWorker::cmdEnablePWP(const QStringList& args) {
+    // TODO: implement this
+    return -1;
+}
+
+int SpdRwWorker::cmdSaveFirmware(const QStringList& args) {
+    // TODO: implement this
     return -1;
 }
 

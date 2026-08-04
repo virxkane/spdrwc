@@ -64,6 +64,10 @@ protected:
     int cmdRead(const QStringList& args);
     int cmdWrite(const QStringList& args);
     int cmdCheckWP(const QStringList& args);
+    int cmdEnableWP(const QStringList& args);
+    int cmdDisableWP(const QStringList& args);
+    int cmdEnablePWP(const QStringList& args);
+    int cmdSaveFirmware(const QStringList& args);
 private:
     static struct ArduinoAddress parseArduinoAddress(const QString& str);
     static QString convertToString(const QStringList& params);
