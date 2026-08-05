@@ -1,0 +1,7 @@
+<RCC>
+    <qresource prefix="/">
+        <file>firmware/arduino-nano-mega328p-20231207.hex</file>
+        <file>firmware/SpdReaderWriter.ino</file>
+        <file>firmware/SpdReaderWriterSettings.h</file>
+    </qresource>
+</RCC>

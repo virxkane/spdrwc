@@ -21,6 +21,7 @@
 
 #include <QtCore/QThread>
 #include <QtCore/QFile>
+#include <QtCore/QDir>
 #include <QtCore/QTextStream>
 #include <QtCore/QDataStream>
 #include <QtSerialPort/QSerialPort>
@@ -31,6 +32,7 @@
 #include <QtCore/QDebug>
 
 #define MAX_SPD_SZ 4096
+#define BLOCK_SZ   4096
 
 SpdRwWorker::SpdRwWorker()
         : QObject(nullptr) { }
@@ -578,7 +580,64 @@ int SpdRwWorker::cmdEnablePWP(const QStringList& args) {
 }
 
 int SpdRwWorker::cmdSaveFirmware(const QStringList& args) {
-    // TODO: implement this
+    // Arguments:
+    //  [0] - destination folder
+    QTextStream out(stdout);
+    QTextStream err(stderr);
+    if (args.size() < 1) {
+        err << "Not enough arguments!" << Qt::endl;
+        return -1;
+    }
+    const QString& dirName = args[0];
+    const QString& sketch_subdirName = "SpdReaderWriter";
+    const QString& hex_subdirName = "hex";
+    const QDir dir(dirName);
+    const QDir sketch_tdir(dirName + QDir::separator() + sketch_subdirName);
+    const QDir hex_tdir(dirName + QDir::separator() + hex_subdirName);
+
+    bool have_errors = false;
+    have_errors = !dir.mkpath(sketch_subdirName);
+    if (have_errors) {
+        err << "Failed to create target directory " << sketch_tdir.path() << Qt::endl;
+        return -1;
+    }
+    have_errors = !dir.mkpath(hex_subdirName);
+    if (have_errors) {
+        err << "Failed to create target directory " << hex_tdir.path() << Qt::endl;
+        return -1;
+    }
+    static const char* sketch_files[] = { "SpdReaderWriter.ino", "SpdReaderWriterSettings.h", "" };
+    static const char* hex_files[] = { "arduino-nano-mega328p-20231207.hex", "" };
+    int i = 0;
+    while (*sketch_files[i]) {
+        out << "Extracting and saving file \"" << sketch_files[i] << "\"..." << Qt::endl;
+        QString src_filename = QString(":/firmware/") + sketch_files[i];
+        QString dest_filename = sketch_tdir.path() + QDir::separator() + sketch_files[i];
+        if (!copyFile(src_filename, dest_filename)) {
+            err << "Failed to save file " << dest_filename << Qt::endl;
+            have_errors = true;
+            break;
+        }
+        i++;
+    }
+    if (!have_errors) {
+        i = 0;
+        while (*hex_files[i]) {
+            out << "Extracting and saving file \"" << hex_files[i] << "\"..." << Qt::endl;
+            QString src_filename = QString(":/firmware/") + hex_files[i];
+            QString dest_filename = hex_tdir.path() + QDir::separator() + hex_files[i];
+            if (!copyFile(src_filename, dest_filename)) {
+                err << "Failed to save file " << dest_filename << Qt::endl;
+                have_errors = true;
+                break;
+            }
+            i++;
+        }
+    }
+    if (!have_errors) {
+        out << "Firmware successfully saved to directory \"" << dir.path() << "\"." << Qt::endl;
+        return 0;
+    }
     return -1;
 }
 
@@ -621,4 +680,43 @@ QString SpdRwWorker::convertToString(const QStringList& params) {
     }
     str += "}";
     return str;
+}
+
+bool SpdRwWorker::copyFile(const QString& src, const QString& dst) {
+    bool res = false;
+    QFile srcFile(src);
+    QFile dstFile(dst);
+    if (srcFile.open(QIODevice::ReadOnly)) {
+        if (dstFile.open(QIODevice::WriteOnly)) {
+            char buff[BLOCK_SZ];
+            bool have_errors = false;
+            while (!srcFile.atEnd()) {
+                qint64 rb = srcFile.read(buff, BLOCK_SZ);
+                if (-1 == rb) {
+                    // read failure
+                    have_errors = true;
+                    break;
+                }
+                if (rb > 0) {
+                    qint64 wb = dstFile.write(buff, rb);
+                    if (wb != rb) {
+                        // write failure
+                        have_errors = true;
+                        break;
+                    }
+                } else {
+                    break;
+                }
+            }
+            srcFile.close();
+            dstFile.close();
+            res = !have_errors;
+        } else {
+            // destination file open failed
+            srcFile.close();
+        }
+    } else {
+        // source file open failed
+    }
+    return res;
 }

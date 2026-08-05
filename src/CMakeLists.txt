@@ -13,7 +13,7 @@ set(SRC_LIST
         spdrw-arduino.cpp
 )
 
-#qt6_add_resources(SPDRWC_RCS spdrwc.qrc)
+qt6_add_resources(SPDRWC_RCS spdrwc.qrc)
 
 if (WIN32)
   add_executable(spdrwc WIN32 ${SRC_LIST} ${SPDRWC_RCS})

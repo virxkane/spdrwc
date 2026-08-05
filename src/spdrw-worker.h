@@ -71,6 +71,7 @@ protected:
 private:
     static struct ArduinoAddress parseArduinoAddress(const QString& str);
     static QString convertToString(const QStringList& params);
+    static bool copyFile(const QString& src, const QString& dst);
 };
 
 #endif
