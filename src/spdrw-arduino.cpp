@@ -29,10 +29,15 @@ SpdRwArduino::SpdRwArduino(const QString& portName, struct ReaderSettings& setti
     m_port->setBaudRate(settings.BaudRate);
     m_timeout = settings.timeout;
     m_valid = m_port->open(QIODevice::ReadWrite);
+    m_portName = portName + QString(":") + QString::number(settings.BaudRate);
 }
 
 SpdRwArduino::~SpdRwArduino() {
     delete m_port;
+}
+
+const QString& SpdRwArduino::portName() const {
+    return m_portName;
 }
 
 bool SpdRwArduino::executeCommandBool(const QByteArray& cmd) {

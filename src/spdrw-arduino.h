@@ -119,6 +119,7 @@ public:
 public:
     SpdRwArduino(const QString& portName, struct ReaderSettings& settings);
     virtual ~SpdRwArduino();
+    const QString& portName() const;
     template <typename T>
     T executeCommand(Command cmd, const QByteArray& args = QByteArray()) {
         QByteArray query;
@@ -147,6 +148,7 @@ protected:
 private:
     static uint8_t calcCRC(const QByteArray& cmd);
     QSerialPort* m_port;
+    QString m_portName;
     int m_timeout;
     bool m_valid;
 };

@@ -17,13 +17,13 @@
  ***************************************************************************/
 
 #include "spdrw-worker.h"
-#include "spdrw-arduino.h"
 
 #include <QtCore/QThread>
 #include <QtCore/QFile>
 #include <QtCore/QDir>
 #include <QtCore/QTextStream>
 #include <QtCore/QDataStream>
+#include <QtCore/QRegularExpression>
 #include <QtSerialPort/QSerialPort>
 #include <QtSerialPort/QSerialPortInfo>
 
@@ -137,22 +137,12 @@ int SpdRwWorker::cmdScanDevice(const QStringList& args) {
     bool have_errors = false;
     QList<int> addresses;
 
-    try {
-        have_errors = !arduino.executeCommand<bool>(SpdRwArduino::Command::Test);
-    } catch (const SpdRwArduino::SpdRwArduinoException& e) {
-        err << e.what() << Qt::endl;
-        have_errors = true;
-    }
-    if (have_errors) {
-        err << "Communication test failed!" << Qt::endl;
+    if (!checkDevice(arduino)) {
+        err << "Testing communication with the device failed!" << Qt::endl;
         return -1;
     }
 
     try {
-        auto fw_version = arduino.executeCommand<uint32_t>(SpdRwArduino::Command::Version);
-        out << "Firmware version: " << fw_version << Qt::endl;
-        // TODO: Test firmware version
-        // TODO: Firmware must be added into program resources
         auto addressMask = arduino.executeCommand<uint8_t>(SpdRwArduino::Command::ScanBus);
         for (uint8_t i = 0; i < 8; i++) {
             uint8_t mask = 1 << i;
@@ -215,19 +205,10 @@ int SpdRwWorker::cmdRead(const QStringList& args) {
     // TODO: Validate PMIC address
 
     // Test device communication
-    // This is required step, without this EEPROM Read function result (and may be other) will be invalid!
-    try {
-        have_errors = !arduino.executeCommand<bool>(SpdRwArduino::Command::Test);
-    } catch (const SpdRwArduino::SpdRwArduinoException& e) {
-        err << "SpdRwArduinoException: " << e.what() << Qt::endl;
-        have_errors = true;
-    }
-    if (have_errors) {
-        err << "Communication test failed!" << Qt::endl;
+    if (!checkDevice(arduino)) {
+        err << "Testing communication with the device failed!" << Qt::endl;
         return -1;
     }
-
-    // TODO: Check Firmware version
 
     // Get SPD size
     uint8_t sz_code = 0;
@@ -356,19 +337,10 @@ int SpdRwWorker::cmdWrite(const QStringList& args) {
     bool have_errors = false;
 
     // Test device communication
-    // This is required step, without this EEPROM Read function result (and may be other) will be invalid!
-    try {
-        have_errors = !arduino.executeCommand<bool>(SpdRwArduino::Command::Test);
-    } catch (const SpdRwArduino::SpdRwArduinoException& e) {
-        err << "SpdRwArduinoException: " << e.what() << Qt::endl;
-        have_errors = true;
-    }
-    if (have_errors) {
-        err << "Communication test failed!" << Qt::endl;
+    if (!checkDevice(arduino)) {
+        err << "Testing communication with the device failed!" << Qt::endl;
         return -1;
     }
-
-    // TODO: Check Firmware version
 
     // Get SPD size
     QByteArray cmd_args;
@@ -458,20 +430,10 @@ int SpdRwWorker::cmdCheckWP(const QStringList& args) {
     bool have_errors = false;
 
     // Test device communication
-    // This is required step, without this EEPROM Read function result (and may be other) will be invalid!
-    try {
-        if (!arduino.executeCommand<bool>(SpdRwArduino::Command::Test))
-            have_errors = true;
-    } catch (const SpdRwArduino::SpdRwArduinoException& e) {
-        err << "SpdRwArduinoException: " << e.what() << Qt::endl;
-        have_errors = true;
-    }
-    if (have_errors) {
-        err << "Communication test failed!" << Qt::endl;
+    if (!checkDevice(arduino)) {
+        err << "Testing communication with the device failed!" << Qt::endl;
         return -1;
     }
-
-    // TODO: Check Firmware version
 
     QByteArray cmd_args;
     cmd_args.append(static_cast<char>(i2cAddress));
@@ -641,6 +603,38 @@ int SpdRwWorker::cmdSaveFirmware(const QStringList& args) {
     return -1;
 }
 
+bool SpdRwWorker::checkDevice(SpdRwArduino& arduino) {
+    QTextStream out(stdout);
+    QTextStream err(stderr);
+    bool have_errors = false;
+
+    try {
+        // 1. Send 'Test' command & test answer
+        // This is required step, without this EEPROM Read function result (and may be other) will be invalid!
+        have_errors = !arduino.executeCommand<bool>(SpdRwArduino::Command::Test);
+        // 2. Check firmware version
+        if (!have_errors) {
+            auto fw_version = arduino.executeCommand<uint32_t>(SpdRwArduino::Command::Version);
+            out << "Firmware version: " << fw_version << Qt::endl;
+            auto included_fs_version = getIncludedFirmwareVersion();
+            if (fw_version < included_fs_version) {
+                err << "The device on port \"" << arduino.portName() << "\" requires its firmware to be updated.";
+                err << "Device firmware version: " << fw_version << Qt::endl;
+                err << "Included in this program firmware version: " << included_fs_version << Qt::endl;
+                have_errors = true;
+            }
+        }
+    } catch (const SpdRwArduino::SpdRwArduinoException& e) {
+        err << "SpdRwArduinoException: " << e.what() << Qt::endl;
+        have_errors = true;
+    } catch (std::exception& e) {
+        err << "Exception: " << e.what() << Qt::endl;
+        have_errors = true;
+    }
+
+    return !have_errors;
+}
+
 struct SpdRwWorker::ArduinoAddress SpdRwWorker::parseArduinoAddress(const QString& str) {
     SpdRwWorker::ArduinoAddress address;
     address.portName = "";
@@ -719,4 +713,25 @@ bool SpdRwWorker::copyFile(const QString& src, const QString& dst) {
         // source file open failed
     }
     return res;
+}
+
+uint32_t SpdRwWorker::getIncludedFirmwareVersion() {
+    QFile file(":/firmware/SpdReaderWriter.ino");
+    if (file.open(QIODevice::ReadOnly)) {
+        QTextStream in(&file);
+        QString text = in.read(1024);
+        if (!text.isEmpty()) {
+            // Extract firmware version using regexp
+            QRegularExpression re("#define\\s+FW_VER\\s+([0-9]{8})");
+            auto match = re.match(text);
+            if (match.hasMatch()) {
+                QString strVersion = match.captured(1);
+                bool convertOk = false;
+                int version = strVersion.toInt(&convertOk);
+                if (convertOk)
+                    return static_cast<uint32_t>(version);
+            }
+        }
+    }
+    return -1;
 }

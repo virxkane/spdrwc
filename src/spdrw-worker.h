@@ -22,6 +22,8 @@
 #include <QtCore/QObject>
 #include <QtCore/QVariantMap>
 
+#include "spdrw-arduino.h"
+
 class SpdRwWorker: public QObject
 {
     Q_OBJECT
@@ -68,10 +70,12 @@ protected:
     int cmdDisableWP(const QStringList& args);
     int cmdEnablePWP(const QStringList& args);
     int cmdSaveFirmware(const QStringList& args);
+    bool checkDevice(SpdRwArduino& arduino);
 private:
     static struct ArduinoAddress parseArduinoAddress(const QString& str);
     static QString convertToString(const QStringList& params);
     static bool copyFile(const QString& src, const QString& dst);
+    static uint32_t getIncludedFirmwareVersion();
 };
 
 #endif
