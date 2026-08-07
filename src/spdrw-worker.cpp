@@ -56,13 +56,13 @@ void SpdRwWorker::mainWork(const QVariantMap& params) {
             result = cmdCheckWP(args);
             break;
         case EnableWP:
-            result = cmdEnableWP(args);
+            result = cmdEnableRSWP(args);
             break;
         case DisableWP:
-            result = cmdDisableWP(args);
+            result = cmdDisableRSWP(args);
             break;
         case EnablePWP:
-            result = cmdEnablePWP(args);
+            result = cmdEnablePSWP(args);
             break;
         case Read:
             result = cmdRead(args);
@@ -495,7 +495,24 @@ int SpdRwWorker::cmdCheckWP(const QStringList& args) {
             break;
     }
 
-    // Check each block for WP
+    // Check each block for PSWP
+    bool pswp_enabled = false;
+    cmd_args.resize(2);
+    cmd_args[1] = SpdRwArduino::Command::Get;
+    try {
+        pswp_enabled = arduino.executeCommand<bool>(SpdRwArduino::Command::Pswp, cmd_args);
+    } catch (const SpdRwArduino::SpdRwArduinoException& e) {
+        err << e.what() << Qt::endl;
+        have_errors = true;
+    }
+    if (!have_errors) {
+        if (pswp_enabled)
+            out << "Permanent EEPROM write protection is enabled." << Qt::endl;
+        else
+            out << "Permanent EEPROM write protection is disabled." << Qt::endl;
+    }
+
+    // Check each block for RSWP
     eeprom_block_status.resize(eeprom_block_count);
     cmd_args.resize(3);
     cmd_args[2] = SpdRwArduino::Command::Get;
@@ -526,19 +543,272 @@ int SpdRwWorker::cmdCheckWP(const QStringList& args) {
     return -1;
 }
 
-int SpdRwWorker::cmdEnableWP(const QStringList& args) {
-    // TODO: implement this
-    return -1;
+int SpdRwWorker::cmdEnableRSWP(const QStringList& args) {
+    // Arguments:
+    //  [0] - <port>:<baudRate>
+    //  [1] - <I2C Address>
+    QTextStream out(stdout);
+    QTextStream err(stderr);
+    if (args.size() < 2) {
+        err << "Not enough arguments!" << Qt::endl;
+        return -1;
+    }
+    SpdRwArduino::ReaderSettings settings = { 115200, 3000 };
+    ArduinoAddress address = parseArduinoAddress(args[0]);
+    bool ok = false;
+    const int i2cAddress = args[1].toInt(&ok);
+    if (!ok || i2cAddress < 1) {
+        err << "Invalid I2C address: " << args[1] << Qt::endl;
+        return -1;
+    }
+    if (address.portName.isEmpty()) {
+        err << "invalid arguments: " << convertToString(args);
+        return -1;
+    }
+
+    settings.BaudRate = address.baudRate;
+    SpdRwArduino arduino(address.portName, settings);
+    bool have_errors = false;
+
+    // Test device communication
+    if (!checkDevice(arduino)) {
+        err << "Testing communication with the device failed!" << Qt::endl;
+        return -1;
+    }
+
+    QByteArray cmd_args;
+    cmd_args.append(static_cast<char>(i2cAddress));
+
+    // Read SPD EEPROM byte #2 (module type code)
+    ModuleType moduleType = Unknown;
+    cmd_args.resize(4);
+    try {
+        cmd_args[1] = 0; // SPD offset: MSB
+        cmd_args[2] = 2; // SPD offset: LSB
+        cmd_args[3] = 1; // count
+        auto byte02_data = arduino.executeCommand<QByteArray>(SpdRwArduino::Command::ReadByte, cmd_args);
+        if (byte02_data.size() == 1) {
+            switch (byte02_data[0]) {
+                case 0x0B:
+                    moduleType = DDR3;
+                    break;
+                case 0x0C:
+                    moduleType = DDR4;
+                    break;
+                case 0x12:
+                    moduleType = DDR5;
+                    break;
+                default:
+                    err << "Unknown module type: code=" << static_cast<int>(byte02_data[0]) << Qt::endl;
+                    have_errors = true;
+                    break;
+            }
+        } else {
+            err << "Read SPD byte #2 failed: read bytes = " << byte02_data.size() << Qt::endl;
+            have_errors = true;
+        }
+    } catch (const SpdRwArduino::SpdRwArduinoException& e) {
+        err << "Failed to read SPD Data byte #2: " << e.what() << Qt::endl;
+        have_errors = true;
+    }
+    if (have_errors) {
+        return -1;
+    }
+
+    int eeprom_block_count = -1;
+    switch (moduleType) {
+        case DDR3:
+            // DDR3 - 2 blocks by 128 bytes
+            eeprom_block_count = 2;
+            break;
+        case DDR4:
+            // DDR4 - 4 blocks by 128 bytes
+            eeprom_block_count = 4;
+            break;
+        case DDR5:
+            // DDR5 - 16 blocks by 64 bytes
+            eeprom_block_count = 16;
+            break;
+    }
+
+    // Enable Write Protection for each block
+    cmd_args.resize(3);
+    cmd_args[2] = 1;
+    for (int i = 0; i < eeprom_block_count; i++) {
+        cmd_args[1] = static_cast<char>(i); // block #
+        try {
+            bool status = arduino.executeCommand<bool>(SpdRwArduino::Command::Rswp, cmd_args);
+            if (status)
+                out << "Block #" << i << " is now read-only." << Qt::endl;
+            else
+                err << "Unable to set write protection for block #" << i
+                    << ". Either SA0 is not connected to HV, or the block is already read-only." << Qt::endl;
+        } catch (const SpdRwArduino::SpdRwArduinoException& e) {
+            err << e.what() << Qt::endl;
+            have_errors = true;
+            break;
+        }
+    }
+    return have_errors ? -1 : 0;
 }
 
-int SpdRwWorker::cmdDisableWP(const QStringList& args) {
-    // TODO: implement this
-    return -1;
+int SpdRwWorker::cmdDisableRSWP(const QStringList& args) {
+    // Arguments:
+    //  [0] - <port>:<baudRate>
+    //  [1] - <I2C Address>
+    QTextStream out(stdout);
+    QTextStream err(stderr);
+    if (args.size() < 2) {
+        err << "Not enough arguments!" << Qt::endl;
+        return -1;
+    }
+    SpdRwArduino::ReaderSettings settings = { 115200, 3000 };
+    ArduinoAddress address = parseArduinoAddress(args[0]);
+    bool ok = false;
+    const int i2cAddress = args[1].toInt(&ok);
+    if (!ok || i2cAddress < 1) {
+        err << "Invalid I2C address: " << args[1] << Qt::endl;
+        return -1;
+    }
+    if (address.portName.isEmpty()) {
+        err << "invalid arguments: " << convertToString(args);
+        return -1;
+    }
+
+    settings.BaudRate = address.baudRate;
+    SpdRwArduino arduino(address.portName, settings);
+    bool have_errors = false;
+
+    // Test device communication
+    if (!checkDevice(arduino)) {
+        err << "Testing communication with the device failed!" << Qt::endl;
+        return -1;
+    }
+
+    QByteArray cmd_args;
+    cmd_args.append(static_cast<char>(i2cAddress));
+
+    // Read SPD EEPROM byte #2 (module type code)
+    ModuleType moduleType = Unknown;
+    cmd_args.resize(4);
+    try {
+        cmd_args[1] = 0; // SPD offset: MSB
+        cmd_args[2] = 2; // SPD offset: LSB
+        cmd_args[3] = 1; // count
+        auto byte02_data = arduino.executeCommand<QByteArray>(SpdRwArduino::Command::ReadByte, cmd_args);
+        if (byte02_data.size() == 1) {
+            switch (byte02_data[0]) {
+                case 0x0B:
+                    moduleType = DDR3;
+                    break;
+                case 0x0C:
+                    moduleType = DDR4;
+                    break;
+                case 0x12:
+                    moduleType = DDR5;
+                    break;
+                default:
+                    err << "Unknown module type: code=" << static_cast<int>(byte02_data[0]) << Qt::endl;
+                    have_errors = true;
+                    break;
+            }
+        } else {
+            err << "Read SPD byte #2 failed: read bytes = " << byte02_data.size() << Qt::endl;
+            have_errors = true;
+        }
+    } catch (const SpdRwArduino::SpdRwArduinoException& e) {
+        err << "Failed to read SPD Data byte #2: " << e.what() << Qt::endl;
+        have_errors = true;
+    }
+    if (have_errors) {
+        return -1;
+    }
+
+    int eeprom_block_count = -1;
+    switch (moduleType) {
+        case DDR3:
+            // DDR3 - 2 blocks by 128 bytes
+            eeprom_block_count = 2;
+            break;
+        case DDR4:
+            // DDR4 - 4 blocks by 128 bytes
+            eeprom_block_count = 4;
+            break;
+        case DDR5:
+            // DDR5 - 16 blocks by 64 bytes
+            eeprom_block_count = 16;
+            break;
+    }
+
+    // Enable Write Protection for each block
+    cmd_args.resize(3);
+    cmd_args[2] = 0;
+    for (int i = 0; i < eeprom_block_count; i++) {
+        cmd_args[1] = static_cast<char>(i); // block #
+        try {
+            bool status = arduino.executeCommand<bool>(SpdRwArduino::Command::Rswp, cmd_args);
+            if (status)
+                out << "Block #" << i << " is now writable." << Qt::endl;
+            else
+                err << "Unable to clear write protection for block #" << i << ". Either SA0 is not connected to HV."
+                    << Qt::endl;
+        } catch (const SpdRwArduino::SpdRwArduinoException& e) {
+            err << e.what() << Qt::endl;
+            have_errors = true;
+            break;
+        }
+    }
+    return have_errors ? -1 : 0;
 }
 
-int SpdRwWorker::cmdEnablePWP(const QStringList& args) {
-    // TODO: implement this
-    return -1;
+int SpdRwWorker::cmdEnablePSWP(const QStringList& args) {
+    // Arguments:
+    //  [0] - <port>:<baudRate>
+    //  [1] - <I2C Address>
+    QTextStream out(stdout);
+    QTextStream err(stderr);
+    if (args.size() < 2) {
+        err << "Not enough arguments!" << Qt::endl;
+        return -1;
+    }
+    SpdRwArduino::ReaderSettings settings = { 115200, 3000 };
+    ArduinoAddress address = parseArduinoAddress(args[0]);
+    bool ok = false;
+    const int i2cAddress = args[1].toInt(&ok);
+    if (!ok || i2cAddress < 1) {
+        err << "Invalid I2C address: " << args[1] << Qt::endl;
+        return -1;
+    }
+    if (address.portName.isEmpty()) {
+        err << "invalid arguments: " << convertToString(args);
+        return -1;
+    }
+
+    settings.BaudRate = address.baudRate;
+    SpdRwArduino arduino(address.portName, settings);
+    bool have_errors = false;
+
+    // Test device communication
+    if (!checkDevice(arduino)) {
+        err << "Testing communication with the device failed!" << Qt::endl;
+        return -1;
+    }
+
+    // Enable Permanent EEPROM Write Protection
+    QByteArray cmd_args(2, Qt::Uninitialized);
+    cmd_args[0] = static_cast<char>(i2cAddress);
+    cmd_args[1] = 1;
+    try {
+        bool status = arduino.executeCommand<bool>(SpdRwArduino::Command::Rswp, cmd_args);
+        if (status)
+            out << "Permanent EEPROM write protection now is enabled." << Qt::endl;
+        else
+            err << "Unable to enable permanent write protection!" << Qt::endl;
+    } catch (const SpdRwArduino::SpdRwArduinoException& e) {
+        err << e.what() << Qt::endl;
+        have_errors = true;
+    }
+    return have_errors ? -1 : 0;
 }
 
 int SpdRwWorker::cmdSaveFirmware(const QStringList& args) {
