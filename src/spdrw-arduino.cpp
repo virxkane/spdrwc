@@ -44,7 +44,7 @@ bool SpdRwArduino::executeCommandBool(const QByteArray& cmd) {
     QByteArray response = executeCommandRaw(cmd);
     if (response.isEmpty())
         throw SpdRwArduinoReadException(0, 1);
-    qDebug() << "BOOL:" << response.toHex(' ');
+    //qDebug() << "BOOL:" << response.toHex(' ');
     return response[0] != 0;
 }
 
@@ -52,7 +52,7 @@ uint8_t SpdRwArduino::executeCommandByte(const QByteArray& cmd) {
     QByteArray response = executeCommandRaw(cmd);
     if (response.isEmpty())
         throw SpdRwArduinoReadException(0, 1);
-    qDebug() << "BYTE:" << response.toHex(' ');
+    //qDebug() << "BYTE:" << response.toHex(' ');
     return static_cast<uint8_t>(response[0]);
 }
 
@@ -60,7 +60,7 @@ QByteArray SpdRwArduino::executeCommandBytes(const QByteArray& cmd) {
     QByteArray response = executeCommandRaw(cmd);
     if (response.isEmpty())
         throw SpdRwArduinoReadException();
-    qDebug() << "BYTES:" << response.toHex(' ');
+    //qDebug() << "BYTES:" << response.toHex(' ');
     return response;
 }
 
@@ -68,7 +68,7 @@ uint16_t SpdRwArduino::executeCommandWORD(const QByteArray& cmd) {
     QByteArray response = executeCommandRaw(cmd);
     if (response.size() < 2)
         throw SpdRwArduinoReadException(static_cast<int>(response.size()), 2);
-    qDebug() << "WORD:" << response.toHex(' ');
+    //qDebug() << "WORD:" << response.toHex(' ');
     return static_cast<uint8_t>(response[0]) | static_cast<uint8_t>(response[1]) << 8;
 }
 
@@ -76,7 +76,7 @@ uint32_t SpdRwArduino::executeCommandDWORD(const QByteArray& cmd) {
     QByteArray response = executeCommandRaw(cmd);
     if (response.size() < 4)
         throw SpdRwArduinoReadException(static_cast<int>(response.size()), 4);
-    qDebug() << "DWORD:" << response.toHex(' ');
+    //qDebug() << "DWORD:" << response.toHex(' ');
     return static_cast<uint8_t>(response[0]) | static_cast<uint8_t>(response[1]) << 8 |
            static_cast<uint8_t>(response[2]) << 16 | static_cast<uint8_t>(response[3]) << 24;
 }
