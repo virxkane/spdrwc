@@ -400,6 +400,7 @@ int SpdRwWorker::cmdWrite(const QStringList& args) {
 }
 
 int SpdRwWorker::cmdCheckWP(const QStringList& args) {
+    // BUG: This function always displays a message that the EEPROM is writable, even when write protection is enabled.
     // Arguments:
     //  [0] - <port>:<baudRate>
     //  [1] - <I2C Address>

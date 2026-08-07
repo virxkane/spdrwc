@@ -123,7 +123,7 @@ public:
     template <typename T>
     T executeCommand(Command cmd, const QByteArray& args = QByteArray()) {
         QByteArray query;
-        query.append((char)cmd);
+        query.append(static_cast<char>(cmd));
         query.append(args);
         // NOTE: Any executeCommandXXX function may raise an exception
         if constexpr (std::is_same_v<T, bool>)
