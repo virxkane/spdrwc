@@ -16,6 +16,12 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.  *
  ***************************************************************************/
 
+/***************************************************************************
+ * Based on SPD-Reader-Writer project code
+ * Copyright (C) @1a2m3 Artem Mikoulyak
+ * https://github.com/1a2m3/SPD-Reader-Writer
+***************************************************************************/
+
 #ifndef SPDRW_ARDUINO_H
 #define SPDRW_ARDUINO_H
 
