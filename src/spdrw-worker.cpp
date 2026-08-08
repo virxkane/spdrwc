@@ -85,16 +85,28 @@ int SpdRwWorker::cmdFind(const QStringList& args) {
     QTextStream out(stdout);
     QTextStream err(stderr);
 
+    // To reduce test attempts check only USB serial device ports...
+    const char* acceptable_port_names_re[] = { "^/dev/ttyUSB\\d+$", "^/dev/ttyACM\\d+$", "^COM\\d+$", "" };
+
     const auto allPorts = QSerialPortInfo::availablePorts();
     int count = 0;
     for (const auto& info : allPorts) {
         QString port = info.systemLocation();
         // TODO: use threads to test in parallel...
-#if 1
-        if (!port.startsWith("/dev/ttyUSB")) {
-            continue;
+
+        bool skipThisPort = true;
+        for (const char* name : acceptable_port_names_re) {
+            if (!*name)
+                break;
+            QRegularExpression re(name);
+            QRegularExpressionMatch match = re.match(port);
+            if (match.hasMatch()) {
+                // Accept this port
+                skipThisPort = false;
+            }
         }
-#endif
+        if (skipThisPort)
+            continue;
 
         // TODO: probe with few baud rates...
         SpdRwArduino::ReaderSettings settings = { 115200, 3000 };
