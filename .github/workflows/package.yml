@@ -1,0 +1,178 @@
+name: Package program for Release or to test any commit (Ubuntu & Windows)
+
+on:
+  push:
+    branches: [ "main" ]
+    tags:
+      - 'v*'
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  # === LINUX BUILD (UBUNTU) ===
+  build-ubuntu:
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout Source Code
+        uses: actions/checkout@v6
+
+      - name: Install System Dependencies & Qt 6
+        run: |
+          sudo apt-get update
+          sudo apt-get install -qq -y build-essential cmake ninja-build qt6-base-dev libqt6serialport6-dev wget
+
+      - name: Build Application
+        run: |
+          mkdir build && cd build
+          cmake -GNinja -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/usr ..
+          cmake --build . --parallel $(nproc) --verbose
+          cmake --install . --prefix=../AppDir/usr
+
+      - name: Download and Setup Linuxdeploy
+        run: |
+          # Download linuxdeploy and plugin for Qt
+          wget -q https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage
+          wget -q https://github.com/linuxdeploy/linuxdeploy-plugin-qt/releases/download/continuous/linuxdeploy-plugin-qt-x86_64.AppImage
+          chmod +x linuxdeploy-x86_64.AppImage
+          chmod +x linuxdeploy-plugin-qt-x86_64.AppImage
+
+      - name: Package AppImage
+        env:
+          QMAKE: /usr/lib/qt6/bin/qmake
+        run: |
+          mkdir -p AppDir/usr/share/applications
+          mkdir -p AppDir/usr/share/icons/hicolor/128x128/apps
+
+          # Create the .desktop entry file
+          cat << 'EOF' > AppDir/usr/share/applications/spdrwc.desktop
+          [Desktop Entry]
+          Type=Application
+          Name=spdrwc
+          Exec=spdrwc
+          Icon=spdrwc
+          Terminal=true
+          Categories=Utility;
+          EOF
+
+          # Generate a valid 1x1 base64 PNG icon
+          echo "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==" | base64 -d > AppDir/usr/share/icons/hicolor/128x128/apps/spdrwc.png
+
+          ./linuxdeploy-x86_64.AppImage --appdir AppDir --plugin qt --output appimage
+
+      - name: Rename AppImage File
+        run: |
+          # Use tag name if available, otherwise fallback to commit SHA for testing
+          if [[ "${GITHUB_REF}" == refs/tags/* ]]; then
+            TAG_NAME=${GITHUB_REF#refs/tags/}
+          else
+            TAG_NAME="test-${GITHUB_SHA::7}"
+          fi
+          # Finds the generated AppImage and renames it to include the tag version
+          GENERATED_APPIMAGE=$(ls *.AppImage | grep -v "linuxdeploy")
+          mv "$GENERATED_APPIMAGE" "spdrwc-${TAG_NAME}-x86_64.AppImage"
+          echo "LINUX_ARTIFACT=spdrwc-${TAG_NAME}-x86_64.AppImage" >> $GITHUB_ENV
+
+      # Store the built AppImage as a temporary workflow artifact
+      - name: Upload Linux Artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: linux-appimage
+          path: ${{ env.LINUX_ARTIFACT }}
+          compression-level: 0 # AppImage already compressed
+          retention-days: 5
+
+  # === WINDOWS BUILD ===
+  build-windows:
+    runs-on: windows-2022
+    steps:
+      - name: Checkout Source Code
+        uses: actions/checkout@v6
+
+      - name: Install Qt 6.8
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: '6.8.*'
+          cache: 'true'
+          install-deps: 'true'
+          modules: 'qtserialport'
+          archives: 'qtbase qtserialport'
+
+      - name: Build Application
+        run: |
+          mkdir build
+          cd build
+          # CMAKE_BUILD_TYPE for MSVC useless
+          cmake -DCMAKE_INSTALL_PREFIX="../dist" ..
+          cmake --build . --config Release --parallel --verbose
+          cmake --install . --config Release
+
+      - name: Deploy Qt Dependencies
+        shell: pwsh
+        run: |
+          # Detect the visual studio compiler and redistributable paths
+          $vsPath = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+          $env:VCToolsRedistDir = Get-ChildItem -Path "$vsPath\VC\Redist\MSVC" | Sort-Object -Descending | Select-Object -First 1 -ExpandProperty FullName
+          $env:VCINSTALLDIR = "$vsPath\VC\"
+
+          windeployqt --release --no-compiler-runtime "dist/bin/spdrwc.exe"
+
+      - name: Rename dist dir
+        shell: pwsh
+        run: |
+          # Use tag name if available, otherwise fallback to commit SHA for testing
+          if ($env:GITHUB_REF -like "refs/tags/*") {
+              $TAG_NAME = $env:GITHUB_REF -replace '^refs/tags/'
+          } else {
+              $TAG_NAME = "test-" + $env:GITHUB_SHA.SubString(0, 7)
+          }
+          mv "dist" "spdrwc-$TAG_NAME-win64"
+          echo "FINAL_DISTDIR=spdrwc-$TAG_NAME-win64" >> $env:GITHUB_ENV
+          echo "FINAL_ZIP=spdrwc-$TAG_NAME-win64.zip" >> $env:GITHUB_ENV
+
+      - name: Create Target ZIP
+        shell: pwsh
+        run: |
+          Compress-Archive -Path "$env:FINAL_DISTDIR" -DestinationPath "$env:FINAL_ZIP"
+
+      # Store the built ZIP archive as a temporary workflow artifact
+      - name: Upload Windows Artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: windows-zip
+          path: spdrwc-*-win64.zip
+          compression-level: 0 # Already compressed
+          retention-days: 5
+
+  # === GITHUB RELEASES DEPLOYMENT ===
+  publish-release:
+    runs-on: ubuntu-latest
+    needs: [build-ubuntu, build-windows] # Wait for both build jobs to complete successfully
+    # CRITICAL: This job will ONLY execute if the push was an actual version tag.
+    # It will be skipped on regular commits, preventing errors while testing the build.
+    if: startsWith(github.ref, 'refs/tags/')
+    permissions:
+      contents: write # Required to update or create GitHub releases and write assets
+    steps:
+      # Download the temporary AppImage file
+      - name: Download Linux Artifact
+        uses: actions/download-artifact@v8
+        with:
+          name: linux-appimage
+          path: ./artifacts
+
+      # Download the temporary Windows ZIP file
+      - name: Download Windows Artifact
+        uses: actions/download-artifact@v8
+        with:
+          name: windows-zip
+          path: ./artifacts
+
+      # Publish all downloaded assets into a single GitHub release entry simultaneously using a valid v2 action
+      - name: Create GitHub Release and Upload Artifacts
+        uses: softprops/action-gh-release@v3
+        with:
+          files: ./artifacts/*
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
