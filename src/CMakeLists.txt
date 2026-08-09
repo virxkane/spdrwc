@@ -23,3 +23,4 @@ else()
 endif (WIN32)
 
 target_link_libraries(spdrwc ${CRE_NG} Qt6::Core Qt6::SerialPort)
+install(TARGETS spdrwc RUNTIME DESTINATION bin)
