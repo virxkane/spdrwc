@@ -1,0 +1,71 @@
+name: Release AppImage (Ubuntu)
+
+on:
+  push:
+    tags:
+      - 'v*' # Triggers the workflow only when you push a version tag like v1.0.0
+
+jobs:
+  build-and-release:
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write # Required to upload assets to a GitHub Release
+
+    steps:
+      - name: Checkout Source Code
+        uses: actions/checkout@v4
+
+      - name: Install System Dependencies & Qt 6
+        run: |
+          sudo apt-get update
+          sudo apt-get install -qq -y build-essential cmake ninja-build qt6-base-dev libqt6serialport6-dev
+
+      - name: Build Application
+        run: |
+          mkdir build && cd build
+          cmake -GNinja -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/usr ..
+          cmake --build . --parallel `nproc` --verbose
+          cmake --install . --prefix=../AppDir/usr
+
+      - name: Download and Setup Linuxdeploy
+        run: |
+          wget -q https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage
+          wget -q https://github.com/linuxdeploy/linuxdeploy-plugin-qt/releases/download/continuous/linuxdeploy-plugin-qt-x86_64.AppImage
+          chmod +x linuxdeploy-x86_64.AppImage
+          chmod +x linuxdeploy-plugin-qt-x86_64.AppImage
+
+      - name: Package AppImage
+        env:
+          # Specify system qmake for Qt6 (required for Ubuntu 22.04)
+          QMAKE: /usr/lib/qt6/bin/qmake
+        run: |
+          mkdir -p AppDir/usr/share/applications
+          mkdir -p AppDir/usr/share/icons/hicolor/scalable/apps
+          cat << 'EOF' > AppDir/usr/share/applications/spdrwc.desktop
+          [Desktop Entry]
+          Type=Application
+          Name=spdrwc
+          Exec=spdrwc
+          Icon=spdrwc
+          Terminal=true
+          Categories=Utility;
+          EOF
+          touch AppDir/usr/share/icons/hicolor/scalable/apps/spdrwc.png
+          ./linuxdeploy-x86_64.AppImage --appdir AppDir --plugin qt --output appimage
+
+      - name: Rename AppImage File
+        run: |
+          # Finds the generated AppImage and renames it to include the tag version
+          TAG_NAME=${GITHUB_REF#refs/tags/}
+          GENERATED_APPIMAGE=$(ls *.AppImage | grep -v "linuxdeploy")
+          mv "$GENERATED_APPIMAGE" "spdrwc-${TAG_NAME}-x86_64.AppImage"
+          echo "FINAL_APPIMAGE=spdrwc-${TAG_NAME}-x86_64.AppImage" >> $GITHUB_ENV
+
+      - name: Create GitHub Release and Upload Artifact
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ env.FINAL_APPIMAGE }}
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
