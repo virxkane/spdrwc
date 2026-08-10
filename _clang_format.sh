@@ -27,6 +27,8 @@
 dirs="src"
 regex_pat=".*\.(h|c|cpp)"
 
+excludes="^src/firmware/.*$"
+
 die()
 {
     echo $*
@@ -37,6 +39,25 @@ do_file()
 {
     local f=$1
     local ret=
+    echo -n "Processing file \"${f}\"... "
+    ${CLANG_FORMAT_EXE} -i "${f}" > /dev/null 2>&1
+    ret=$?
+    test ${ret} -eq 0 && echo "done" || echo "fail"
+    return $ret
+}
+
+do_file_with_exc()
+{
+    local f=$1
+    local p=
+    local ret=
+    for p in ${excludes}
+    do
+        if echo "${f}" | grep -i -e "${p}" > /dev/null
+        then
+            return 0
+        fi
+    done
     echo -n "Processing file \"${f}\"... "
     ${CLANG_FORMAT_EXE} -i "${f}" > /dev/null 2>&1
     ret=$?
@@ -57,8 +78,10 @@ check_clang_format_executable() {
     return 0
 }
 
+export excludes
 export -f die
 export -f do_file
+export -f do_file_with_exc
 
 if [ ! -f .clang-format ]
 then
@@ -84,11 +107,11 @@ if [ "x${is_darwin}" = "xyes" ]
 then
     for dir in ${dirs}
     do
-        find -E ${dir} -depth -maxdepth 5 -type f -iregex ${regex_pat} -exec bash -c 'do_file "$0"' '{}' \;
+        find -E ${dir} -depth -maxdepth 5 -type f -iregex ${regex_pat} -exec bash -c 'do_file_with_exc "$0"' '{}' \;
     done
 else
     for dir in ${dirs}
     do
-        find ${dir} -depth -maxdepth 5 -type f -regextype posix-egrep -iregex ${regex_pat} -exec bash -c 'do_file "$0"' '{}' \;
+        find ${dir} -depth -maxdepth 5 -type f -regextype posix-egrep -iregex ${regex_pat} -exec bash -c 'do_file_with_exc "$0"' '{}' \;
     done
 fi
