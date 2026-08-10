@@ -12,5 +12,6 @@ CMakeLists.txt.user.*
 *.patch
 .clang_format_exe.conf
 .idea
+.qtcreator
 cmake-build-*
 /build/
