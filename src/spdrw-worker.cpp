@@ -92,7 +92,8 @@ int SpdRwWorker::cmdFind(const QStringList& args) {
     QTextStream err(stderr);
 
     // To reduce test attempts check only USB serial device ports...
-    const char* acceptable_port_names_re[] = { "^/dev/ttyUSB\\d+$", "^/dev/ttyACM\\d+$", "^COM\\d+$", "" };
+    const char* acceptable_port_names_re[] = { "^/dev/ttyUSB\\d+$", "^/dev/ttyACM\\d+$", "^COM\\d+$",
+                                               R"(^\\\\.\\COM\d+$)", "" };
 
     const auto allPorts = QSerialPortInfo::availablePorts();
     int count = 0;
@@ -121,10 +122,10 @@ int SpdRwWorker::cmdFind(const QStringList& args) {
 
         // Test communication with target device via this port...
         try {
-            qDebug() << "Probing port" << port << "...";
+            //qDebug() << "Probing port" << port << "...";
             have_errors = !arduino.executeCommand<bool>(SpdRwArduino::Command::Test);
         } catch (const SpdRwArduino::SpdRwArduinoException& e) {
-            err << e.what() << Qt::endl;
+            // Suppress any error logging
             have_errors = true;
         }
         if (!have_errors) {
