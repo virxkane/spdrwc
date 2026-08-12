@@ -147,7 +147,7 @@ int SpdRwWorker::cmdScanDevice(const QStringList& args) {
     if (!args.isEmpty())
         address = parseArduinoAddress(args[0]);
     if (address.portName.isEmpty()) {
-        err << "invalid arguments: " << convertToString(args);
+        err << "invalid arguments: " << convertToString(args) << Qt::endl;
         return 1;
     }
 
@@ -211,7 +211,7 @@ int SpdRwWorker::cmdRead(const QStringList& args) {
         return -1;
     }
     if (address.portName.isEmpty()) {
-        err << "invalid arguments: " << convertToString(args);
+        err << "invalid arguments: " << convertToString(args) << Qt::endl;
         return -1;
     }
     const QString& filename = args[2];
@@ -319,7 +319,7 @@ int SpdRwWorker::cmdWrite(const QStringList& args) {
         return -1;
     }
     if (address.portName.isEmpty()) {
-        err << "invalid arguments: " << convertToString(args);
+        err << "invalid arguments: " << convertToString(args) << Qt::endl;
         return -1;
     }
     const QString& filename = args[2];
@@ -438,7 +438,7 @@ int SpdRwWorker::cmdCheckWP(const QStringList& args) {
         return -1;
     }
     if (address.portName.isEmpty()) {
-        err << "invalid arguments: " << convertToString(args);
+        err << "invalid arguments: " << convertToString(args) << Qt::endl;
         return -1;
     }
 
@@ -582,7 +582,7 @@ int SpdRwWorker::cmdEnableRSWP(const QStringList& args) {
         return -1;
     }
     if (address.portName.isEmpty()) {
-        err << "invalid arguments: " << convertToString(args);
+        err << "invalid arguments: " << convertToString(args) << Qt::endl;
         return -1;
     }
 
@@ -691,7 +691,7 @@ int SpdRwWorker::cmdDisableRSWP(const QStringList& args) {
         return -1;
     }
     if (address.portName.isEmpty()) {
-        err << "invalid arguments: " << convertToString(args);
+        err << "invalid arguments: " << convertToString(args) << Qt::endl;
         return -1;
     }
 
@@ -800,7 +800,7 @@ int SpdRwWorker::cmdEnablePSWP(const QStringList& args) {
         return -1;
     }
     if (address.portName.isEmpty()) {
-        err << "invalid arguments: " << convertToString(args);
+        err << "invalid arguments: " << convertToString(args) << Qt::endl;
         return -1;
     }
 
