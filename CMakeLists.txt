@@ -6,8 +6,17 @@ set(CMAKE_MODULE_PATH "${CMAKE_SOURCE_DIR}/cmake/modules/")
 option(ADD_DEBUG_EXTRA_OPTS "Add extra debug flags and technique" OFF)
 
 # Find the Qt6 libraries
-find_package(Qt6Core REQUIRED)
-find_package(Qt6SerialPort REQUIRED)
+find_package(Qt6 REQUIRED COMPONENTS Core)
+if (UNIX)
+    get_target_property(QT_CORE_TYPE Qt6::Core TYPE)
+    if(QT_IS_STATIC OR QT_CORE_TYPE STREQUAL "STATIC_LIBRARY")
+        # Required when using with Qt 6 static libraries
+        message(STATUS "Qt6 is static. Finding libudev via pkg-config for QtSerialPort...")
+        find_package(PkgConfig REQUIRED)
+        pkg_check_modules(Libudev REQUIRED IMPORTED_TARGET libudev)
+    endif()
+endif()
+find_package(Qt6 REQUIRED COMPONENTS SerialPort)
 #include(Qt6TranslationToolsMacros)
 
 # Qt6 modules can override the C++ standard, here we have set the minimum required

@@ -12,33 +12,90 @@ jobs:
   # === LINUX BUILD (UBUNTU) ===
   build-ubuntu:
     runs-on: ubuntu-22.04
+    env:
+      QT_SRC_SUBS_URL: "https://download.qt.io/official_releases/qt/6.8/6.8.4/submodules/"
+      QT_QTBASE_PKGNAME: "qtbase-everywhere-opensource-src-6.8.4.tar.xz"
+      QT_QTSP_PKGNAME: "qtserialport-everywhere-opensource-src-6.8.4.tar.xz"
     steps:
       - name: Checkout Source Code
         uses: actions/checkout@v6
 
-      - name: Install System Dependencies & Qt 6
+      - name: Install System Dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -qq -y build-essential cmake ninja-build qt6-base-dev libqt6serialport6-dev wget
+          sudo apt-get install -qq -y build-essential cmake ninja-build pkgconf wget libgl-dev libudev-dev
+
+      - name: Build Qt 6.8 LTS static minimal + qtserialport
+        id: qt_build
+        run: |
+          mkdir qt-install-prefix
+          QT_PREFIX=$(realpath qt-install-prefix)
+          # 1. Download Qt source archives
+          mkdir archives
+          pushd archives
+          wget -q "${QT_SRC_SUBS_URL}/${QT_QTBASE_PKGNAME}"
+          wget -q "${QT_SRC_SUBS_URL}/${QT_QTSP_PKGNAME}"
+          popd
+          # 2. Extract qt source archives
+          mkdir sources
+          pushd sources
+          tar xJf "../archives/${QT_QTBASE_PKGNAME}"
+          tar xJf "../archives/${QT_QTSP_PKGNAME}"
+          popd
+          # 3. Build Qt qtbase minimal package (static)
+          mkdir qt-build
+          pushd qt-build
+          mkdir qtbase-build
+          pushd qtbase-build
+          ../../sources/qtbase-everywhere-src-6.8.4/configure \
+            --prefix="${QT_PREFIX}" \
+            -release \
+            -static \
+            -no-gui \
+            -no-widgets \
+            -no-openssl \
+            -no-opengl \
+            -nomake tests \
+            -nomake examples \
+            -- -DFEATURE_androiddeployqt=OFF -DFEATURE_sql=OFF -DFEATURE_network=OFF
+          cmake --build . --parallel $(nproc)
+          cmake --install .
+          popd
+          # 4. Build QtSerialPort module
+          mkdir qtserialport-build
+          pushd qtserialport-build
+          cmake -GNinja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_INSTALL_PREFIX="${QT_PREFIX}" \
+            -DCMAKE_PREFIX_PATH="${QT_PREFIX}" \
+            ../../sources/qtserialport-everywhere-src-6.8.4
+          cmake --build . --parallel $(nproc)
+          cmake --install .
+          popd
+          popd
+          echo "QT_PREFIX=${QT_PREFIX}" >> $GITHUB_OUTPUT
 
       - name: Build Application
         run: |
-          mkdir build && cd build
-          cmake -GNinja -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/usr ..
+          QT_PREFIX="${{ steps.qt_build.outputs.QT_PREFIX }}"
+          mkdir build
+          pushd build
+          cmake -GNinja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_PREFIX_PATH="${QT_PREFIX}" \
+            -DCMAKE_INSTALL_PREFIX=/usr \
+            ..
           cmake --build . --parallel $(nproc) --verbose
           cmake --install . --prefix=../AppDir/usr
+          popd
 
       - name: Download and Setup Linuxdeploy
         run: |
-          # Download linuxdeploy and plugin for Qt
+          # Download linuxdeploy
           wget -q https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage
-          wget -q https://github.com/linuxdeploy/linuxdeploy-plugin-qt/releases/download/continuous/linuxdeploy-plugin-qt-x86_64.AppImage
           chmod +x linuxdeploy-x86_64.AppImage
-          chmod +x linuxdeploy-plugin-qt-x86_64.AppImage
 
       - name: Package AppImage
-        env:
-          QMAKE: /usr/lib/qt6/bin/qmake
         run: |
           mkdir -p AppDir/usr/share/applications
           mkdir -p AppDir/usr/share/icons/hicolor/128x128/apps
@@ -57,7 +114,7 @@ jobs:
           # Generate a valid 1x1 base64 PNG icon
           echo "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==" | base64 -d > AppDir/usr/share/icons/hicolor/128x128/apps/spdrwc.png
 
-          ./linuxdeploy-x86_64.AppImage --appdir AppDir --plugin qt --output appimage
+          ./linuxdeploy-x86_64.AppImage --appdir AppDir --output appimage
 
       - name: Rename AppImage File
         run: |
